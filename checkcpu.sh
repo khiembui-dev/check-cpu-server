@@ -1,0 +1,34 @@
+#!/bin/bash
+
+echo -e "| Thứ tự | VPS ID | CPU |"
+echo -e "|--------|--------|------|"
+
+i=1
+
+# Lặp qua tất cả VM đang chạy
+for vm in $(virsh list --name); do
+    [ -z "$vm" ] && continue
+
+    # Lấy số vCPU của VPS (CPU(s) trong dominfo)
+    vcpu=$(virsh dominfo "$vm" 2>/dev/null | awk '/CPU.s/ {print $2; exit}')
+    [ -z "$vcpu" ] && vcpu=1
+
+    # Tìm PID của qemu-kvm / qemu-system tương ứng VM này
+    pid=$(ps -eo pid,cmd | grep -E 'qemu-kvm|qemu-system' | grep "guest=${vm}," | awk 'NR==1 {print $1}')
+    [ -z "$pid" ] && continue
+
+    # %CPU thô của process (có thể tới 400% nếu 4 core ăn full)
+    pcpu=$(ps -p "$pid" -o %cpu= | tr -d ' ')
+    [ -z "$pcpu" ] && continue
+
+    # Đổi về % trên tổng vCPU: ví dụ pcpu=272, vcpu=4 => 68%
+    usage=$(awk -v c="$pcpu" -v v="$vcpu" 'BEGIN{
+        if (v == 0) v = 1;
+        u = c / v;
+        if (u > 100) u = 100;   # ép trần 100% cho dễ đọc
+        printf "%.0f", u;
+    }')
+
+    echo -e "| $i | $vm | ${usage}% |"
+    i=$((i+1))
+done
